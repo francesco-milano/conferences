@@ -1,0 +1,1495 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.47.16.16243",
+      "templateHash": "14232256085797975897"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "westeurope",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "resourceGroupName": {
+      "type": "string",
+      "defaultValue": "rg-sql-demo",
+      "metadata": {
+        "description": "Resource group name."
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureadmin",
+      "metadata": {
+        "description": "Local administrator user for all VMs."
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Local administrator password. Supply it at deployment time or through a secure parameter file."
+      }
+    },
+    "vnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.40.0.0/16",
+      "metadata": {
+        "description": "Virtual network address space."
+      }
+    },
+    "subnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.40.0.0/24",
+      "metadata": {
+        "description": "Subnet address space."
+      }
+    },
+    "bastionSubnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.40.1.0/26",
+      "metadata": {
+        "description": "Azure Bastion subnet address space. Must be at least /26 and named AzureBastionSubnet."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2ms",
+      "metadata": {
+        "description": "Low-cost VM size. Confirm regional availability before deployment."
+      }
+    },
+    "sqlPort": {
+      "type": "int",
+      "defaultValue": 1433,
+      "metadata": {
+        "description": "SQL Server TCP port exposed inside the private subnet."
+      }
+    },
+    "adventureWorksBackupUrl": {
+      "type": "string",
+      "defaultValue": "https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak",
+      "metadata": {
+        "description": "AdventureWorks backup URL used by the SQL 2019 post-deployment script."
+      }
+    },
+    "gatewayInstallerUrl": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional URL for a separately hosted gateway installer. Leave empty to install no gateway automatically."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2022-09-01",
+      "name": "[parameters('resourceGroupName')]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "network",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vnetName": {
+            "value": "vnet-sql-demo"
+          },
+          "vnetAddressPrefix": {
+            "value": "[parameters('vnetAddressPrefix')]"
+          },
+          "subnetAddressPrefix": {
+            "value": "[parameters('subnetAddressPrefix')]"
+          },
+          "sqlPort": {
+            "value": "[parameters('sqlPort')]"
+          },
+          "bastionSubnetAddressPrefix": {
+            "value": "[parameters('bastionSubnetAddressPrefix')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.47.16.16243",
+              "templateHash": "17027913740750509445"
+            }
+          },
+          "parameters": {
+            "vnetName": {
+              "type": "string"
+            },
+            "vnetAddressPrefix": {
+              "type": "string"
+            },
+            "subnetAddressPrefix": {
+              "type": "string"
+            },
+            "sqlPort": {
+              "type": "int"
+            },
+            "bastionSubnetAddressPrefix": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-09-01",
+              "name": "[format('{0}-nsg', parameters('vnetName'))]",
+              "location": "[resourceGroup().location]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-Rdp-From-Bastion",
+                    "properties": {
+                      "priority": 100,
+                      "access": "Allow",
+                      "direction": "Inbound",
+                      "protocol": "Tcp",
+                      "sourceAddressPrefix": "[parameters('bastionSubnetAddressPrefix')]",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRange": "3389"
+                    }
+                  },
+                  {
+                    "name": "Allow-Sql-From-Vnet",
+                    "properties": {
+                      "priority": 110,
+                      "access": "Allow",
+                      "direction": "Inbound",
+                      "protocol": "Tcp",
+                      "sourceAddressPrefix": "[parameters('vnetAddressPrefix')]",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRange": "[string(parameters('sqlPort'))]"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('vnetName')]",
+              "location": "[resourceGroup().location]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('vnetAddressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-vms",
+                    "properties": {
+                      "addressPrefix": "[parameters('subnetAddressPrefix')]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('vnetName')))]"
+                      }
+                    }
+                  },
+                  {
+                    "name": "AzureBastionSubnet",
+                    "properties": {
+                      "addressPrefix": "[parameters('bastionSubnetAddressPrefix')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('vnetName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "subnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), 'snet-vms')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "bastion",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "vnetName": {
+            "value": "vnet-sql-demo"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.47.16.16243",
+              "templateHash": "468554670047958386"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "vnetName": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2023-09-01",
+              "name": "pip-bastion-sql-demo",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static"
+              }
+            },
+            {
+              "type": "Microsoft.Network/bastionHosts",
+              "apiVersion": "2023-09-01",
+              "name": "bas-sql-demo",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Basic"
+              },
+              "properties": {
+                "ipConfigurations": [
+                  {
+                    "name": "bastion-ipconfig",
+                    "properties": {
+                      "subnet": {
+                        "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), 'AzureBastionSubnet')]"
+                      },
+                      "publicIPAddress": {
+                        "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'pip-bastion-sql-demo')]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', 'pip-bastion-sql-demo')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "bastionName": {
+              "type": "string",
+              "value": "bas-sql-demo"
+            },
+            "publicIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', 'pip-bastion-sql-demo'), '2023-09-01').ipAddress]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "sql2019",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vmName": {
+            "value": "sql-demo-2019"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "subnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetId.value]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "enablePublicIp": {
+            "value": false
+          },
+          "sqlPort": {
+            "value": "[parameters('sqlPort')]"
+          },
+          "sqlOffer": {
+            "value": "sql2019-ws2019"
+          },
+          "sqlSku": {
+            "value": "standard"
+          },
+          "backupUrl": {
+            "value": "[parameters('adventureWorksBackupUrl')]"
+          },
+          "installDatabase": {
+            "value": true
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.47.16.16243",
+              "templateHash": "17150047891554591084"
+            }
+          },
+          "parameters": {
+            "vmName": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            },
+            "subnetId": {
+              "type": "string"
+            },
+            "vmSize": {
+              "type": "string"
+            },
+            "adminUsername": {
+              "type": "string"
+            },
+            "adminPassword": {
+              "type": "securestring"
+            },
+            "enablePublicIp": {
+              "type": "bool"
+            },
+            "sqlPort": {
+              "type": "int"
+            },
+            "sqlOffer": {
+              "type": "string"
+            },
+            "sqlSku": {
+              "type": "string"
+            },
+            "backupUrl": {
+              "type": "string"
+            },
+            "installDatabase": {
+              "type": "bool"
+            },
+            "enableSystemAssignedIdentity": {
+              "type": "bool",
+              "defaultValue": false
+            }
+          },
+          "variables": {
+            "$fxv#0": "param(\r\n    [Parameter(Mandatory = $true)]\r\n    [string] $BackupUrl,\r\n    [int] $SqlPort = 1433\r\n)\r\n\r\n$ErrorActionPreference = 'Stop'\r\n$log = 'C:\\Windows\\Temp\\fabric-mirroring-sample-db.log'\r\nStart-Transcript -Path $log -Append\r\ntry {\r\n    $backup = 'C:\\Windows\\Temp\\AdventureWorks.bak'\r\n    $dataDir = 'C:\\Program Files\\Microsoft SQL Server\\MSSQL\\Data'\r\n    New-Item -ItemType Directory -Path $dataDir -Force | Out-Null\r\n\r\n    if (-not (Test-Path $backup)) {\r\n        Invoke-WebRequest -Uri $BackupUrl -OutFile $backup -UseBasicParsing\r\n    }\r\n\r\n    $sql = @\"\r\nIF DB_ID(N'AdventureWorks') IS NULL\r\nBEGIN\r\n  RESTORE DATABASE [AdventureWorks]\r\n  FROM DISK = N'$backup'\r\n  WITH MOVE N'AdventureWorks2022' TO N'$dataDir\\AdventureWorks.mdf',\r\n       MOVE N'AdventureWorks2022_log' TO N'$dataDir\\AdventureWorks_log.ldf',\r\n       RECOVERY, REPLACE;\r\nEND;\r\nALTER DATABASE [AdventureWorks] SET RECOVERY FULL;\r\n\"@\r\n\r\n    $sqlcmd = Join-Path ${env:ProgramFiles} 'Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\sqlcmd.exe'\r\n    if (-not (Test-Path $sqlcmd)) {\r\n        $sqlcmd = 'sqlcmd.exe'\r\n    }\r\n    & $sqlcmd -S \"localhost,$SqlPort\" -E -b -Q $sql\r\n    if ($LASTEXITCODE -ne 0) {\r\n        throw \"sqlcmd exited with code $LASTEXITCODE\"\r\n    }\r\n}\r\nfinally {\r\n    Stop-Transcript\r\n}\r\n"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('{0}-base', parameters('vmName'))]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "[parameters('vmName')]"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[parameters('subnetId')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "enablePublicIp": {
+                    "value": "[parameters('enablePublicIp')]"
+                  },
+                  "imagePublisher": {
+                    "value": "MicrosoftSQLServer"
+                  },
+                  "imageOffer": {
+                    "value": "[parameters('sqlOffer')]"
+                  },
+                  "imageSku": {
+                    "value": "[parameters('sqlSku')]"
+                  },
+                  "identityType": "[if(parameters('enableSystemAssignedIdentity'), createObject('value', 'SystemAssigned'), createObject('value', 'None'))]",
+                  "extensionName": {
+                    "value": ""
+                  },
+                  "extensionScriptUri": {
+                    "value": ""
+                  },
+                  "extensionCommand": {
+                    "value": ""
+                  },
+                  "runCommandScript": "[if(parameters('installDatabase'), createObject('value', variables('$fxv#0')), createObject('value', ''))]",
+                  "runCommandParameters": "[if(parameters('installDatabase'), createObject('value', createArray(createObject('name', 'BackupUrl', 'value', parameters('backupUrl')), createObject('name', 'SqlPort', 'value', string(parameters('sqlPort'))))), createObject('value', createArray()))]"
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.47.16.16243",
+                      "templateHash": "5108656984677178476"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "subnetId": {
+                      "type": "string"
+                    },
+                    "vmSize": {
+                      "type": "string"
+                    },
+                    "adminUsername": {
+                      "type": "string"
+                    },
+                    "adminPassword": {
+                      "type": "securestring"
+                    },
+                    "enablePublicIp": {
+                      "type": "bool",
+                      "defaultValue": true
+                    },
+                    "imagePublisher": {
+                      "type": "string",
+                      "defaultValue": "MicrosoftWindowsServer"
+                    },
+                    "imageOffer": {
+                      "type": "string",
+                      "defaultValue": "WindowsServer"
+                    },
+                    "imageSku": {
+                      "type": "string",
+                      "defaultValue": "2022-datacenter-azure-edition"
+                    },
+                    "identityType": {
+                      "type": "string",
+                      "defaultValue": "None"
+                    },
+                    "extensionName": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "extensionScriptUri": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "extensionCommand": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "runCommandScript": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "runCommandParameters": {
+                      "type": "array",
+                      "defaultValue": []
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('enablePublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-09-01",
+                      "name": "[format('{0}-pip', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static",
+                        "dnsSettings": {
+                          "domainNameLabel": "[toLower(parameters('vmName'))]"
+                        }
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-09-01",
+                      "name": "[format('{0}-nic', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "Dynamic",
+                              "publicIPAddress": "[if(parameters('enablePublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName')))), null())]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2024-03-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "identity": "[if(equals(parameters('identityType'), 'None'), null(), createObject('type', parameters('identityType')))]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": {
+                          "computerName": "[parameters('vmName')]",
+                          "adminUsername": "[parameters('adminUsername')]",
+                          "adminPassword": "[parameters('adminPassword')]",
+                          "windowsConfiguration": {
+                            "provisionVMAgent": true,
+                            "enableAutomaticUpdates": true
+                          }
+                        },
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "[parameters('imagePublisher')]",
+                            "offer": "[parameters('imageOffer')]",
+                            "sku": "[parameters('imageSku')]",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName')))]",
+                              "properties": {
+                                "primary": true
+                              }
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "condition": "[not(empty(parameters('extensionName')))]",
+                      "type": "Microsoft.Compute/virtualMachines/extensions",
+                      "apiVersion": "2024-03-01",
+                      "name": "[format('{0}/{1}', parameters('vmName'), parameters('extensionName'))]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "publisher": "Microsoft.Compute",
+                        "type": "CustomScriptExtension",
+                        "typeHandlerVersion": "1.10",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                          "fileUris": [
+                            "[parameters('extensionScriptUri')]"
+                          ],
+                          "commandToExecute": "[parameters('extensionCommand')]"
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                      ]
+                    },
+                    {
+                      "condition": "[not(empty(parameters('runCommandScript')))]",
+                      "type": "Microsoft.Compute/virtualMachines/runCommands",
+                      "apiVersion": "2024-03-01",
+                      "name": "[format('{0}/{1}', parameters('vmName'), 'post-deployment-configuration')]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "source": {
+                          "script": "[parameters('runCommandScript')]"
+                        },
+                        "parameters": "[parameters('runCommandParameters')]",
+                        "timeoutInSeconds": 3600
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "privateIp": {
+                      "type": "string",
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName'))), '2023-09-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "value": "[if(parameters('enablePublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName'))), '2023-09-01').ipAddress, '')]"
+                    },
+                    "vmId": {
+                      "type": "string",
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "privateIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-base', parameters('vmName'))), '2025-04-01').outputs.privateIp.value]"
+            },
+            "publicIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-base', parameters('vmName'))), '2025-04-01').outputs.publicIp.value]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "sql2025",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vmName": {
+            "value": "sql-demo-2025"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "subnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetId.value]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "enablePublicIp": {
+            "value": false
+          },
+          "sqlPort": {
+            "value": "[parameters('sqlPort')]"
+          },
+          "sqlOffer": {
+            "value": "sql2025-ws2025"
+          },
+          "sqlSku": {
+            "value": "standard-gen2"
+          },
+          "backupUrl": {
+            "value": ""
+          },
+          "installDatabase": {
+            "value": false
+          },
+          "enableSystemAssignedIdentity": {
+            "value": true
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.47.16.16243",
+              "templateHash": "17150047891554591084"
+            }
+          },
+          "parameters": {
+            "vmName": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            },
+            "subnetId": {
+              "type": "string"
+            },
+            "vmSize": {
+              "type": "string"
+            },
+            "adminUsername": {
+              "type": "string"
+            },
+            "adminPassword": {
+              "type": "securestring"
+            },
+            "enablePublicIp": {
+              "type": "bool"
+            },
+            "sqlPort": {
+              "type": "int"
+            },
+            "sqlOffer": {
+              "type": "string"
+            },
+            "sqlSku": {
+              "type": "string"
+            },
+            "backupUrl": {
+              "type": "string"
+            },
+            "installDatabase": {
+              "type": "bool"
+            },
+            "enableSystemAssignedIdentity": {
+              "type": "bool",
+              "defaultValue": false
+            }
+          },
+          "variables": {
+            "$fxv#0": "param(\r\n    [Parameter(Mandatory = $true)]\r\n    [string] $BackupUrl,\r\n    [int] $SqlPort = 1433\r\n)\r\n\r\n$ErrorActionPreference = 'Stop'\r\n$log = 'C:\\Windows\\Temp\\fabric-mirroring-sample-db.log'\r\nStart-Transcript -Path $log -Append\r\ntry {\r\n    $backup = 'C:\\Windows\\Temp\\AdventureWorks.bak'\r\n    $dataDir = 'C:\\Program Files\\Microsoft SQL Server\\MSSQL\\Data'\r\n    New-Item -ItemType Directory -Path $dataDir -Force | Out-Null\r\n\r\n    if (-not (Test-Path $backup)) {\r\n        Invoke-WebRequest -Uri $BackupUrl -OutFile $backup -UseBasicParsing\r\n    }\r\n\r\n    $sql = @\"\r\nIF DB_ID(N'AdventureWorks') IS NULL\r\nBEGIN\r\n  RESTORE DATABASE [AdventureWorks]\r\n  FROM DISK = N'$backup'\r\n  WITH MOVE N'AdventureWorks2022' TO N'$dataDir\\AdventureWorks.mdf',\r\n       MOVE N'AdventureWorks2022_log' TO N'$dataDir\\AdventureWorks_log.ldf',\r\n       RECOVERY, REPLACE;\r\nEND;\r\nALTER DATABASE [AdventureWorks] SET RECOVERY FULL;\r\n\"@\r\n\r\n    $sqlcmd = Join-Path ${env:ProgramFiles} 'Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\sqlcmd.exe'\r\n    if (-not (Test-Path $sqlcmd)) {\r\n        $sqlcmd = 'sqlcmd.exe'\r\n    }\r\n    & $sqlcmd -S \"localhost,$SqlPort\" -E -b -Q $sql\r\n    if ($LASTEXITCODE -ne 0) {\r\n        throw \"sqlcmd exited with code $LASTEXITCODE\"\r\n    }\r\n}\r\nfinally {\r\n    Stop-Transcript\r\n}\r\n"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('{0}-base', parameters('vmName'))]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "[parameters('vmName')]"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[parameters('subnetId')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "enablePublicIp": {
+                    "value": "[parameters('enablePublicIp')]"
+                  },
+                  "imagePublisher": {
+                    "value": "MicrosoftSQLServer"
+                  },
+                  "imageOffer": {
+                    "value": "[parameters('sqlOffer')]"
+                  },
+                  "imageSku": {
+                    "value": "[parameters('sqlSku')]"
+                  },
+                  "identityType": "[if(parameters('enableSystemAssignedIdentity'), createObject('value', 'SystemAssigned'), createObject('value', 'None'))]",
+                  "extensionName": {
+                    "value": ""
+                  },
+                  "extensionScriptUri": {
+                    "value": ""
+                  },
+                  "extensionCommand": {
+                    "value": ""
+                  },
+                  "runCommandScript": "[if(parameters('installDatabase'), createObject('value', variables('$fxv#0')), createObject('value', ''))]",
+                  "runCommandParameters": "[if(parameters('installDatabase'), createObject('value', createArray(createObject('name', 'BackupUrl', 'value', parameters('backupUrl')), createObject('name', 'SqlPort', 'value', string(parameters('sqlPort'))))), createObject('value', createArray()))]"
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.47.16.16243",
+                      "templateHash": "5108656984677178476"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "subnetId": {
+                      "type": "string"
+                    },
+                    "vmSize": {
+                      "type": "string"
+                    },
+                    "adminUsername": {
+                      "type": "string"
+                    },
+                    "adminPassword": {
+                      "type": "securestring"
+                    },
+                    "enablePublicIp": {
+                      "type": "bool",
+                      "defaultValue": true
+                    },
+                    "imagePublisher": {
+                      "type": "string",
+                      "defaultValue": "MicrosoftWindowsServer"
+                    },
+                    "imageOffer": {
+                      "type": "string",
+                      "defaultValue": "WindowsServer"
+                    },
+                    "imageSku": {
+                      "type": "string",
+                      "defaultValue": "2022-datacenter-azure-edition"
+                    },
+                    "identityType": {
+                      "type": "string",
+                      "defaultValue": "None"
+                    },
+                    "extensionName": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "extensionScriptUri": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "extensionCommand": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "runCommandScript": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "runCommandParameters": {
+                      "type": "array",
+                      "defaultValue": []
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('enablePublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-09-01",
+                      "name": "[format('{0}-pip', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static",
+                        "dnsSettings": {
+                          "domainNameLabel": "[toLower(parameters('vmName'))]"
+                        }
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-09-01",
+                      "name": "[format('{0}-nic', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "Dynamic",
+                              "publicIPAddress": "[if(parameters('enablePublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName')))), null())]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2024-03-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "identity": "[if(equals(parameters('identityType'), 'None'), null(), createObject('type', parameters('identityType')))]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": {
+                          "computerName": "[parameters('vmName')]",
+                          "adminUsername": "[parameters('adminUsername')]",
+                          "adminPassword": "[parameters('adminPassword')]",
+                          "windowsConfiguration": {
+                            "provisionVMAgent": true,
+                            "enableAutomaticUpdates": true
+                          }
+                        },
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "[parameters('imagePublisher')]",
+                            "offer": "[parameters('imageOffer')]",
+                            "sku": "[parameters('imageSku')]",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName')))]",
+                              "properties": {
+                                "primary": true
+                              }
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "condition": "[not(empty(parameters('extensionName')))]",
+                      "type": "Microsoft.Compute/virtualMachines/extensions",
+                      "apiVersion": "2024-03-01",
+                      "name": "[format('{0}/{1}', parameters('vmName'), parameters('extensionName'))]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "publisher": "Microsoft.Compute",
+                        "type": "CustomScriptExtension",
+                        "typeHandlerVersion": "1.10",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                          "fileUris": [
+                            "[parameters('extensionScriptUri')]"
+                          ],
+                          "commandToExecute": "[parameters('extensionCommand')]"
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                      ]
+                    },
+                    {
+                      "condition": "[not(empty(parameters('runCommandScript')))]",
+                      "type": "Microsoft.Compute/virtualMachines/runCommands",
+                      "apiVersion": "2024-03-01",
+                      "name": "[format('{0}/{1}', parameters('vmName'), 'post-deployment-configuration')]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "source": {
+                          "script": "[parameters('runCommandScript')]"
+                        },
+                        "parameters": "[parameters('runCommandParameters')]",
+                        "timeoutInSeconds": 3600
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "privateIp": {
+                      "type": "string",
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName'))), '2023-09-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "value": "[if(parameters('enablePublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName'))), '2023-09-01').ipAddress, '')]"
+                    },
+                    "vmId": {
+                      "type": "string",
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "privateIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-base', parameters('vmName'))), '2025-04-01').outputs.privateIp.value]"
+            },
+            "publicIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-base', parameters('vmName'))), '2025-04-01').outputs.publicIp.value]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "gateway",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vmName": {
+            "value": "sql-demo-gw"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "subnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetId.value]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "enablePublicIp": {
+            "value": false
+          },
+          "gatewayInstallerUrl": {
+            "value": "[parameters('gatewayInstallerUrl')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.47.16.16243",
+              "templateHash": "13877007608495097590"
+            }
+          },
+          "parameters": {
+            "vmName": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            },
+            "subnetId": {
+              "type": "string"
+            },
+            "vmSize": {
+              "type": "string"
+            },
+            "adminUsername": {
+              "type": "string"
+            },
+            "adminPassword": {
+              "type": "securestring"
+            },
+            "enablePublicIp": {
+              "type": "bool"
+            },
+            "gatewayInstallerUrl": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('{0}-base', parameters('vmName'))]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "[parameters('vmName')]"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[parameters('subnetId')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "enablePublicIp": {
+                    "value": "[parameters('enablePublicIp')]"
+                  },
+                  "extensionName": "[if(not(empty(parameters('gatewayInstallerUrl'))), createObject('value', 'install-data-gateway'), createObject('value', ''))]",
+                  "extensionScriptUri": {
+                    "value": "https://raw.githubusercontent.com/francesco-milano/conferences/main/SQL%20Start%202026%20-%20Ancona/setup/scripts/install-data-gateway.ps1"
+                  },
+                  "extensionCommand": "[if(not(empty(parameters('gatewayInstallerUrl'))), createObject('value', format('powershell.exe -ExecutionPolicy Bypass -File install-data-gateway.ps1 -InstallerUrl \"{0}\"', parameters('gatewayInstallerUrl'))), createObject('value', ''))]"
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.47.16.16243",
+                      "templateHash": "5108656984677178476"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "subnetId": {
+                      "type": "string"
+                    },
+                    "vmSize": {
+                      "type": "string"
+                    },
+                    "adminUsername": {
+                      "type": "string"
+                    },
+                    "adminPassword": {
+                      "type": "securestring"
+                    },
+                    "enablePublicIp": {
+                      "type": "bool",
+                      "defaultValue": true
+                    },
+                    "imagePublisher": {
+                      "type": "string",
+                      "defaultValue": "MicrosoftWindowsServer"
+                    },
+                    "imageOffer": {
+                      "type": "string",
+                      "defaultValue": "WindowsServer"
+                    },
+                    "imageSku": {
+                      "type": "string",
+                      "defaultValue": "2022-datacenter-azure-edition"
+                    },
+                    "identityType": {
+                      "type": "string",
+                      "defaultValue": "None"
+                    },
+                    "extensionName": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "extensionScriptUri": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "extensionCommand": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "runCommandScript": {
+                      "type": "string",
+                      "defaultValue": ""
+                    },
+                    "runCommandParameters": {
+                      "type": "array",
+                      "defaultValue": []
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('enablePublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-09-01",
+                      "name": "[format('{0}-pip', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static",
+                        "dnsSettings": {
+                          "domainNameLabel": "[toLower(parameters('vmName'))]"
+                        }
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-09-01",
+                      "name": "[format('{0}-nic', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "Dynamic",
+                              "publicIPAddress": "[if(parameters('enablePublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName')))), null())]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2024-03-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "identity": "[if(equals(parameters('identityType'), 'None'), null(), createObject('type', parameters('identityType')))]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": {
+                          "computerName": "[parameters('vmName')]",
+                          "adminUsername": "[parameters('adminUsername')]",
+                          "adminPassword": "[parameters('adminPassword')]",
+                          "windowsConfiguration": {
+                            "provisionVMAgent": true,
+                            "enableAutomaticUpdates": true
+                          }
+                        },
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "[parameters('imagePublisher')]",
+                            "offer": "[parameters('imageOffer')]",
+                            "sku": "[parameters('imageSku')]",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName')))]",
+                              "properties": {
+                                "primary": true
+                              }
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "condition": "[not(empty(parameters('extensionName')))]",
+                      "type": "Microsoft.Compute/virtualMachines/extensions",
+                      "apiVersion": "2024-03-01",
+                      "name": "[format('{0}/{1}', parameters('vmName'), parameters('extensionName'))]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "publisher": "Microsoft.Compute",
+                        "type": "CustomScriptExtension",
+                        "typeHandlerVersion": "1.10",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                          "fileUris": [
+                            "[parameters('extensionScriptUri')]"
+                          ],
+                          "commandToExecute": "[parameters('extensionCommand')]"
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                      ]
+                    },
+                    {
+                      "condition": "[not(empty(parameters('runCommandScript')))]",
+                      "type": "Microsoft.Compute/virtualMachines/runCommands",
+                      "apiVersion": "2024-03-01",
+                      "name": "[format('{0}/{1}', parameters('vmName'), 'post-deployment-configuration')]",
+                      "location": "[parameters('location')]",
+                      "properties": {
+                        "source": {
+                          "script": "[parameters('runCommandScript')]"
+                        },
+                        "parameters": "[parameters('runCommandParameters')]",
+                        "timeoutInSeconds": 3600
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "privateIp": {
+                      "type": "string",
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('vmName'))), '2023-09-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "value": "[if(parameters('enablePublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('vmName'))), '2023-09-01').ipAddress, '')]"
+                    },
+                    "vmId": {
+                      "type": "string",
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "privateIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-base', parameters('vmName'))), '2025-04-01').outputs.privateIp.value]"
+            },
+            "publicIp": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-base', parameters('vmName'))), '2025-04-01').outputs.publicIp.value]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'network')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "resourceGroupName": {
+      "type": "string",
+      "value": "[parameters('resourceGroupName')]"
+    },
+    "sql2019PrivateIp": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'sql2019'), '2025-04-01').outputs.privateIp.value]"
+    },
+    "sql2025PrivateIp": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'sql2025'), '2025-04-01').outputs.privateIp.value]"
+    },
+    "gatewayPrivateIp": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'gateway'), '2025-04-01').outputs.privateIp.value]"
+    },
+    "bastionName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'bastion'), '2025-04-01').outputs.bastionName.value]"
+    },
+    "bastionPublicIp": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'bastion'), '2025-04-01').outputs.publicIp.value]"
+    }
+  }
+}
