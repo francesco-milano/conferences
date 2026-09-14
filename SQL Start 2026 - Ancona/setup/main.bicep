@@ -1,7 +1,7 @@
 targetScope = 'subscription'
 
 @description('Azure region for all resources.')
-param location string = 'westeurope'
+param location string = 'italynorth'
 
 @description('Resource group name.')
 param resourceGroupName string = 'rg-sql-demo'
@@ -28,11 +28,11 @@ param vmSize string = 'Standard_B2ms'
 @description('SQL Server TCP port exposed inside the private subnet.')
 param sqlPort int = 1433
 
-@description('AdventureWorks backup URL used by the SQL 2019 post-deployment script.')
-param adventureWorksBackupUrl string = 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak'
+@description('AdventureWorks 2019 backup URL used by the SQL VM post-deployment scripts.')
+param adventureWorksBackupUrl string = 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak'
 
-@description('Optional URL for a separately hosted gateway installer. Leave empty to install no gateway automatically.')
-param gatewayInstallerUrl string = ''
+@description('Official standard on-premises data gateway installer URL.')
+param gatewayInstallerUrl string = 'https://go.microsoft.com/fwlink/?LinkId=2116849&clcid=0x409'
 
 resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
   name: resourceGroupName
@@ -82,26 +82,6 @@ module sql2019 'modules/sql-vm.bicep' = {
   }
 }
 
-module sql2025 'modules/sql-vm.bicep' = {
-  name: 'sql2025'
-  scope: rg
-  params: {
-    vmName: 'sql-demo-2025'
-    location: location
-    subnetId: network.outputs.subnetId
-    vmSize: vmSize
-    adminUsername: adminUsername
-    adminPassword: adminPassword
-    enablePublicIp: false
-    sqlPort: sqlPort
-    sqlOffer: 'sql2025-ws2025'
-    sqlSku: 'standard-gen2'
-    backupUrl: ''
-    installDatabase: false
-    enableSystemAssignedIdentity: true
-  }
-}
-
 module gateway 'modules/gateway-vm.bicep' = {
   name: 'gateway'
   scope: rg
@@ -119,7 +99,6 @@ module gateway 'modules/gateway-vm.bicep' = {
 
 output resourceGroupName string = rg.name
 output sql2019PrivateIp string = sql2019.outputs.privateIp
-output sql2025PrivateIp string = sql2025.outputs.privateIp
 output gatewayPrivateIp string = gateway.outputs.privateIp
 output bastionName string = bastion.outputs.bastionName
 output bastionPublicIp string = bastion.outputs.publicIp

@@ -1,58 +1,88 @@
-# Azure SQL Server environment for Fabric Mirroring
+# Ambiente SQL Server per Fabric Mirroring
 
-Questo template Bicep prepara l'ambiente del tutorial [Fabric Mirroring da SQL Server](https://learn.microsoft.com/fabric/mirroring/sql-server-tutorial).
+Questo progetto crea in `ItalyNorth` le VM necessarie per il tutorial [Fabric Mirroring da SQL Server](https://learn.microsoft.com/fabric/mirroring/sql-server-tutorial):
 
-## Risorse
+- `sql-demo-2019`: SQL Server 2019 con AdventureWorks ripristinato durante il deployment.
+- `sql-demo-gw`: VM con On-premises data gateway installato durante il deployment.
+- VNet privata, NSG e Azure Bastion per collegarsi alle VM senza esporre RDP su Internet.
 
-- `sql-demo-2019`: immagine marketplace SQL Server 2019 e script opzionale per AdventureWorks.
-- `sql-demo-2025`: immagine marketplace SQL Server 2025 con identità gestita assegnata.
-- `sql-demo-gw`: Windows VM destinata all'installazione dell'On-premises data gateway.
-- VNet/subnet privata condivisa, subnet `AzureBastionSubnet` `/26` e Azure Bastion con public IP dedicato.
-- Le VM non hanno IP pubblici; RDP è consentito solo dal subnet Bastion e non è esposto direttamente a Internet.
-
-Le immagini SQL con licenza inclusa possono costare più del solo compute. Verificare SKU e disponibilità nella regione scelta.
+Le immagini SQL Server includono costi di licenza. Azure Bastion e il relativo public IP hanno un costo separato.
 
 ## Prerequisiti
 
-1. Azure CLI con estensione Bicep aggiornata: `az bicep upgrade`.
-2. Permessi per creare resource group, rete, VM, marketplace images e VM extensions.
-3. Accettazione dei termini marketplace per le immagini SQL, se richiesta dalla sottoscrizione.
-4. Considerare il costo orario di Azure Bastion e del public IP Standard. Il Bastion consente l'accesso RDP dal portale senza autorizzare un CIDR amministrativo nel template.
+1. Installare Azure CLI.
+2. Eseguire PowerShell nella cartella `setup`.
+3. Avere permessi per creare resource group, VNet, Bastion, VM e marketplace images.
+4. Verificare che la subscription consenta le immagini SQL Server richieste.
 
-## Validazione e deployment
+## Configurazione persistente
 
-```powershell
-az bicep build --file .\main.bicep
-az deployment sub what-if `
-  --location westeurope `
-  --template-file .\main.bicep `
-  --parameters .\main.bicepparam.example adminPassword='<NON SALVARE QUESTA PASSWORD>'
-```
+Modificare [main.bicepparam](./main.bicepparam) per cambiare regione, nomi, SKU, rete e URL del backup. Il valore `REPLACE_AT_RUNTIME` della password è solo un placeholder e viene sovrascritto da `install.ps1`; non inserire password reali nel file.
 
-Per il deployment usare una password fornita da prompt o da un secret store:
+Tenant e subscription sono parametri salvati all'inizio di [install.ps1](./install.ps1):
 
 ```powershell
-az deployment sub create `
-  --location westeurope `
-  --template-file .\main.bicep `
-  --parameters .\main.bicepparam.example adminPassword='<PASSWORD SICURA>'
+[string] $TenantId = 'a71860fa-71bd-440a-bf10-e4ebb31b33ce'
+[string] $SubscriptionId = '60f5fd4e-b988-4a9c-abcc-786770a4c7e5'
 ```
 
-Il file `main.bicepparam.example` è solo un esempio: non committare password o altri parametri con segreti.
+Modificarli se si usa un altro ambiente. In alternativa si possono sovrascrivere senza modificare il file:
 
-## Passaggi manuali dopo il deployment
+```powershell
+.\install.ps1 -TenantId '<TENANT_ID>' -SubscriptionId '<SUBSCRIPTION_ID>'
+```
 
-1. Verificare gli IP privati e l'output `bastionPublicIp`.
-2. Aprire Azure Portal > Bastion > `bas-sql-demo` e usare Connect per raggiungere le VM via RDP. Nessun IP pubblico viene assegnato alle VM.
-3. Sul gateway, installare/registrare manualmente l'On-premises data gateway in Fabric. La registrazione richiede account Entra e recovery key e non può essere completata da Bicep.
-4. Per `sql-demo-2025`, verificare la system-assigned managed identity e completare l'onboarding Azure Arc/SQL extension con un operatore autorizzato. Lo script `scripts/arc-sql2025-prereqs.ps1` esegue solo controlli locali.
-5. Il deployment esegue `scripts/install-sample-database.ps1` tramite una VM run command incorporata nel template e attende il completamento del ripristino di AdventureWorks. Verificare quindi il database e configurare CDC/login secondo la documentazione Fabric.
-6. Testare dal gateway la connettività TCP verso gli IP privati SQL sulla porta configurata.
+## Deployment
 
-## Cleanup
+Lo script:
+
+- verifica o esegue il login nel tenant configurato;
+- imposta la subscription;
+- compila il template e il file parametri;
+- chiede la password VM senza salvarla su disco;
+- esegue il deployment e attende il completamento delle risorse;
+- ripristina AdventureWorks sulla VM SQL 2019;
+
+Per eseguire una simulazione:
+
+```powershell
+.\install.ps1 -WhatIf
+```
+
+Per creare le risorse:
+
+```powershell
+.\install.ps1
+```
+
+Se il template è già stato validato:
+
+```powershell
+.\install.ps1 -SkipBuild
+```
+
+## Dopo il deployment
+
+1. Nel resource group `rg-sql-demo`, aprire Azure Bastion `bas-sql-demo`.
+2. Collegarsi alle VM usando gli IP privati restituiti dal deployment e il nome utente locale `azureadmin`.
+3. Registrare manualmente l'On-premises data gateway già installato in Fabric: servono account Entra e recovery key.
+4. Preparare il login e le permission SQL eseguendo
+   [configure-mirror.sql](./sql-2019/configure-mirror.sql) su `sql-demo-2019`
+   con SSMS in Windows Authentication. Prima dell'esecuzione, impostare nella
+   variabile `@FabricLoginPassword` una password temporanea e non committarla.
+   Lo script crea il login `sqldemo`, lo abilita per la configurazione iniziale
+   di CDC e assegna i permessi sul database `AdventureWorks`.
+5. Creare il mirrored database in Fabric seguendo il tutorial. Quando CDC è
+   stato abilitato e il mirroring è attivo, eseguire la sezione `CLEANUP` dello
+   script per rimuovere `sysadmin` e `db_owner`; resteranno `CONNECT` e
+   `SELECT`, necessari per la replica.
+
+## Rimozione
+
+Per eliminare tutte le risorse:
 
 ```powershell
 az group delete --name rg-sql-demo --yes --no-wait
 ```
 
-Non eseguire i dataflow Fabric da questo repository: il template prepara solo l'infrastruttura Azure.
+Non condividere o committare password, token o file di output contenenti segreti.

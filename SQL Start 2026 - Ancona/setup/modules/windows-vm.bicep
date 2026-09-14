@@ -125,6 +125,8 @@ resource runCommand 'Microsoft.Compute/virtualMachines/runCommands@2024-03-01' =
   name: 'post-deployment-configuration'
   location: location
   properties: {
+    runAsUser: adminUsername
+    runAsPassword: adminPassword
     source: {
       script: runCommandScript
     }

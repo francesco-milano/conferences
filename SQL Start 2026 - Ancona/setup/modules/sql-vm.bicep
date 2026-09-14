@@ -11,7 +11,6 @@ param sqlOffer string
 param sqlSku string
 param backupUrl string
 param installDatabase bool
-param enableSystemAssignedIdentity bool = false
 
 module base '../modules/windows-vm.bicep' = {
   name: '${vmName}-base'
@@ -26,21 +25,22 @@ module base '../modules/windows-vm.bicep' = {
     imagePublisher: 'MicrosoftSQLServer'
     imageOffer: sqlOffer
     imageSku: sqlSku
-    identityType: enableSystemAssignedIdentity ? 'SystemAssigned' : 'None'
+    identityType: 'None'
     extensionName: ''
     extensionScriptUri: ''
     extensionCommand: ''
-    runCommandScript: installDatabase ? loadTextContent('../scripts/install-sample-database.ps1') : ''
-    runCommandParameters: installDatabase ? [
-      {
-        name: 'BackupUrl'
-        value: backupUrl
-      }
-      {
-        name: 'SqlPort'
-        value: string(sqlPort)
-      }
-    ] : []
+    runCommandScript: installDatabase
+      ? replace(
+          replace(
+            loadTextContent('../scripts/install-sample-database.ps1'),
+            '__BACKUP_URL__',
+            backupUrl
+          ),
+          '__SQL_PORT__',
+          string(sqlPort)
+        )
+      : ''
+    runCommandParameters: []
   }
 }
 

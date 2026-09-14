@@ -18,9 +18,11 @@ module base '../modules/windows-vm.bicep' = {
     adminUsername: adminUsername
     adminPassword: adminPassword
     enablePublicIp: enablePublicIp
-    extensionName: !empty(gatewayInstallerUrl) ? 'install-data-gateway' : ''
-    extensionScriptUri: 'https://raw.githubusercontent.com/francesco-milano/conferences/main/SQL%20Start%202026%20-%20Ancona/setup/scripts/install-data-gateway.ps1'
-    extensionCommand: !empty(gatewayInstallerUrl) ? 'powershell.exe -ExecutionPolicy Bypass -File install-data-gateway.ps1 -InstallerUrl "${gatewayInstallerUrl}"' : ''
+    extensionName: ''
+    extensionScriptUri: ''
+    extensionCommand: ''
+    runCommandScript: replace(loadTextContent('../scripts/install-data-gateway.ps1'), '__INSTALLER_URL__', gatewayInstallerUrl)
+    runCommandParameters: []
   }
 }
 
