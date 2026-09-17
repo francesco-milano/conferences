@@ -42,6 +42,8 @@ Lo script:
 - chiede la password VM senza salvarla su disco;
 - esegue il deployment e attende il completamento delle risorse;
 - ripristina AdventureWorks sulla VM SQL 2019;
+- configura una regola Windows Firewall per consentire TCP sulla porta SQL
+  configurata dalla VNet privata;
 
 Per eseguire una simulazione:
 

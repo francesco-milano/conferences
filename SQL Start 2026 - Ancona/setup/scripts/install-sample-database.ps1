@@ -22,6 +22,19 @@ function Invoke-SqlCommand {
 }
 
 try {
+    $firewallRuleName = "Allow-SQL-TCP-$SqlPort"
+    $existingFirewallRule = Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue
+    if (-not $existingFirewallRule) {
+        New-NetFirewallRule `
+            -DisplayName $firewallRuleName `
+            -Direction Inbound `
+            -Action Allow `
+            -Protocol TCP `
+            -LocalPort $SqlPort `
+            -Profile Domain,Private `
+            -ErrorAction Stop | Out-Null
+    }
+
     $deadline = (Get-Date).AddMinutes(20)
     do {
         $sqlService = Get-Service -Name 'MSSQL*' -ErrorAction SilentlyContinue |
