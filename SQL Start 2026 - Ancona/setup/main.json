@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "italynorth"
+    },
+    "resourceGroupName": {
+      "value": "rg-sql-demo"
+    },
+    "adminUsername": {
+      "value": "azureadmin"
+    },
+    "adminPassword": {
+      "value": "REPLACE_AT_RUNTIME"
+    },
+    "vnetAddressPrefix": {
+      "value": "10.40.0.0/16"
+    },
+    "subnetAddressPrefix": {
+      "value": "10.40.0.0/24"
+    },
+    "bastionSubnetAddressPrefix": {
+      "value": "10.40.1.0/26"
+    },
+    "vmSize": {
+      "value": "Standard_B2ms"
+    },
+    "sqlPort": {
+      "value": 1433
+    },
+    "adventureWorksBackupUrl": {
+      "value": "https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak"
+    },
+    "gatewayInstallerUrl": {
+      "value": "https://go.microsoft.com/fwlink/?LinkId=2116849&clcid=0x409"
+    }
+  }
+}
