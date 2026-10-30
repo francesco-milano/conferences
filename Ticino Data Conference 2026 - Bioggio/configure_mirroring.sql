@@ -4,7 +4,7 @@ select * from sys.dm_server_managed_identities;
 
 
 -- 02. create a login on the master database
---use master
+use master
 --go
 /* SQL Auth		*/  
 -- create login [fabric_login] with password = '<strong password>';
@@ -13,12 +13,12 @@ select * from sys.dm_server_managed_identities;
 /* SPN			*/  
 -- create login [Service Principal Name] from external provider;
 /* WKS Identity */	
--- create login [Workspace Identity Name] from external provider;
+create login [Ticino Data Conference 2026] from external provider;
 
 
 
 -- 03a. create a mapped/contained user on the target database
---use [tdc-demo]
+use [tdc-demo]
 --go
 /* Mapped User: just fill the Login Name with the one created in step 01	*/  
 --create user [Ticino Data Conference 2026] for login [<Login Name>];
